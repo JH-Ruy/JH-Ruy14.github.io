@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <!--<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/0.9.0/p5.js"></script>-->
+	<script src = "https://cdn.jsdelivr.net/npm/p5@1.2.0/lib/p5.js"></script>
+    <script src ="https://cdn.pubnub.com/sdk/javascript/pubnub.4.25.2.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/p5.serialserver@0.0.28/lib/p5.serialport.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.7.0/addons/p5.sound.min.js"></script>
+
+    
+
+  </head>
+  <body>
+    
+    <script>
+      
+      
+      var portname = 'COM9'
+      let serial;
+      var val;
+      var bgcolor = (100, 100, 100);
+      var rain = [];
+      var cityImg,noiseImg;
+      var sound,sound0,sound1,sound2,soundArray=[],temps;
+      var imgscale=1.8;
+      let mvalue=0;
+      var breaC;
+      var drops=[];
+      let freqdrop=5;//5~10
+      var dis_r1,dis_r2,dis_r3;
+
+      var firstImg, secondImg;
+	  let fade = 0;
+	  let forestSound, windSound, rainSound;
+      
+      function preload(){
+          //cityImg = loadImage("3.jpg");
+          
+          firstImg = loadImage("12.gif");	// 비가 올 때 800 초과
+		  secondImg = loadImage("34.gif");	// 비가 안올 때 800 이하
+		  
+		  cityImg = firstImg;
+		  
+		  // sound
+		  forestSound = loadSound('A Thick Forest.mp3');
+      windSound = loadSound('wind.mp3');
+		  rainSound = loadSound('rain.mp3');
+      }
+      
+      class Drop {
+          // 생성자 함수로 초기화
+          constructor(args) {
+            // 빗방울의 반지름과 이력을 저장하는 배열 초기화
+            this.r = args.r;
+            this.rs = [];
+            this.rs.push(this.r);
+
+            // 빗방울의 위치와 이력을 저장하는 배열 초기화
+            this.p = args.p;
+            this.ps = [];
+            this.ps.push(this.p);
+
+            // 빗방울의 색상과 이력을 저장하는 배열 초기화
+            this.c = cityImg.get(this.p.x, this.p.y);
+            this.cs = [];
+            this.cs.push(this.c);
+
+            // 빗방울 상태 설정 ("alive" 또는 "dead")
+            this.state = "alive";
+
+            // 빗방울 업데이트 타이머 시작 프레임 설정
+            this.timerStart = frameCount;
+            this.timer = 0;
+          }
+
+          // 빗방울 업데이트 함수
+          update() {
+            // 업데이트 타이머 값 계산
+            this.timer = frameCount - this.timerStart;
+
+            // 일정 주기마다 업데이트 수행
+            if (this.timer % 20 && this.state == "alive") {
+              // 빗방울의 위치 조정
+              this.p = createVector(this.p.x + random(-this.r / 5, this.r / 5), this.p.y + random(this.r / 2));
+
+              // 빗방울의 크기 조정
+              this.r += random(0.2);
+
+              // 빗방울의 색상 조정
+              this.c = cityImg.get(this.p.x, this.p.y);
+              this.c[0] += 70;
+              this.c[1] += 70;
+              this.c[2] += 70;
+              this.c[3] = 150;
+
+              // 빗방울이 화면 안에 있을 때만 위치, 크기, 색상 정보를 배열에 추가
+              if (this.p.y <= height + this.r) {
+                this.ps.push(this.p);
+                this.rs.push(this.r);
+                this.cs.push(this.c);
+              }
+            }
+
+            // 배열에 저장된 색상 정보 갱신
+            for (let co of this.cs) {
+              co[3] -= 5;
+              if (co[3] <= 0) {
+                this.cs.shift();
+                this.ps.shift();
+                this.rs.shift();
+              }
+            }
+
+            // 빗방울이 화면을 벗어나면 상태를 "dead"로 변경
+            if (this.cs.length <= 1 && this.p.y > height + this.r) {
+              this.state = "dead";
+            }
+          }
+
+          // 빗방울을 그리는 함수
+          draw() {
+            // 배열에 저장된 정보를 기반으로 빗방울을 그림
+            for (let [key, d] of this.ps.entries()) {
+              push();
+              fill(this.cs[key]);
+              ellipseMode(CENTER);
+              ellipse(d.x, d.y, this.rs[key]);
+              pop();
+            }
+          }
+        }
+      
+      function setup(){	  
+        createCanvas(cityImg.width*imgscale, cityImg.height*imgscale);
+
+        for (i = 0; i < 100; i++) {
+          rain[i] = new Rain(random(50, 550), random(0, -3000));
+        }
+        creat_serial();
+      
+
+        background(100);
+        noStroke();
+        rectMode(CENTER);
+        ellipseMode(CENTER);
+        //cityImg.resize(cityImg.width*imgscale, cityImg.height*imgscale);
+        //image(cityImg,0,0);
+        firstImg.resize(firstImg.width*imgscale, firstImg.height*imgscale);
+		    secondImg.resize(secondImg.width*imgscale, secondImg.height*imgscale);
+
+	    // sound 
+		forestSound.loop();
+		windSound.loop();
+      }
+      
+      // 시리얼 통신을 설정하는 함수
+      function creat_serial() {
+       // p5.SerialPort 객체 생성
+       serial = new p5.SerialPort();
+
+        // 시리얼 데이터가 도착할 때 호출되는 이벤트 핸들러 정의
+       serial.on("data", serialEvent);
+
+       // 지정된 포트를 열기
+        serial.open(portname);
+
+        // 시리얼 데이터를 처리하는 이벤트 핸들러
+        function serialEvent() {
+          // 시리얼로부터 전달된 문자열을 읽어오기
+         var inString = serial.readLine();
+
+          // 읽어온 문자열의 길이가 0보다 크면 숫자로 변환하여 변수에 저장
+       if (inString.length > 0) {
+      val = Number(inString);
+    }
+  }
+}
+		
+function draw(){
+	if(val>800){
+    if(rainSound.isPlaying()){
+rainSound.stop();
+}
+		cityImg = firstImg;
+		  
+	  dis_r1 = dis_r1-1;
+	  dis_r2 = dis_r2-1;
+	  dis_r3 = dis_r3-1;
+	  console.log("val : " + val);
+		console.log("dis_r1 : " + dis_r1);
+		console.log("dis_r2 : " + dis_r2);
+		console.log("dis_r3 : " + dis_r3);
+		
+		// 비가 그치기 전에 화면 전환
+	  if((dis_r1 < 20)&&(dis_r2 < 20)&&(dis_r3 < 20)){
+	  		cityImg = secondImg;
+		    push();
+			noTint();
+			tint(255, fade);
+			image(cityImg,0,0);
+            pop();
+		  
+			if(fade < 255){
+			  fade = fade + 0.05;
+			}
+		  
+		    if(frameCount%30==0){
+			  for(var i=0;i<cityImg.width;i+=random(20,50)){
+				  for(var j=0;j<cityImg.height;j+=random(20,50)){
+					  let c = cityImg.get(i,j);
+					  push();
+					  fill(
+						  c[0]-random(10),
+						  c[1]-random(10),
+						  c[2]-random(5),
+						  dis_r1
+					  );
+						  translate(i,j);
+						  rect(0,0,random(50),random(50));
+					  pop();
+				  }
+			  }
+		  }
+		  if(frameCount%10==0){
+			  for(var ci=0;ci<cityImg.width;ci+=random(10,50)){
+				  for(var cj=0;cj<cityImg.height;cj+=random(10,50)){
+					  let c = cityImg.get(ci,cj);
+					  if(c[0]>120+random(-10,10) && c[2]>120+random(-10,10)){
+						  c[0]*=(1+random(0.3));
+						  c[2]*=(1+random(0.3));
+					  }
+					  push();
+					  fill(
+						  c[0],
+						  c[1],
+						  c[2],
+						  dis_r2
+					  );
+
+						  blendMode(LIGHTEST);
+						  translate(ci,cj);
+						  ellipse(0,0,random(40));
+					  pop();
+				  }
+			  }
+		  }
+		  if(frameCount%9==0){
+			  for(var ri=0;ri<cityImg.width;ri+=random(10,20)){
+				  for(var rj=0;rj<cityImg.height;rj+=random(20,50)){
+					  let c = cityImg.get(ri,rj);
+					  push();
+					  fill(
+						  c[0]+random(10,20),
+						  c[1]+random(10,20),
+						  c[2]+random(20,30),
+						  dis_r3
+					  );
+						  translate(ri,rj);
+						  rect(0,0,random(5),random(50));
+					  pop();
+				  }
+			  }
+		  } 
+	  }
+		
+	  if((dis_r1 < 0)&&(dis_r2 < 0)&&(dis_r3 < 0)){
+		  cityImg = secondImg;
+		  if(rainSound.isPlaying()){
+			rainSound.stop();
+		  }
+	  }else{
+		  //if(!rainSound.isPlaying()){
+			//rainSound.loop();
+			//  fade = 0;
+		  //}
+		  push();
+		  let o=noise(frameCount*0.02);
+		  tint(255,o*2.5)
+		  image(cityImg,0,0);
+		  pop();
+		  setTimeout(function() {
+			  if(frameCount%30==0){
+				  for(var i=0;i<cityImg.width;i+=random(20,50)){
+					  for(var j=0;j<cityImg.height;j+=random(20,50)){
+						  let c = cityImg.get(i,j);
+						  push();
+						  fill(
+							  c[0]-random(10),
+							  c[1]-random(10),
+							  c[2]-random(5),
+							  dis_r1
+						  );
+							  translate(i,j);
+							  rect(0,0,random(50),random(50));
+						  pop();
+					  }
+				  }
+			  }
+			  if(frameCount%10==0){
+				  for(var ci=0;ci<cityImg.width;ci+=random(10,50)){
+					  for(var cj=0;cj<cityImg.height;cj+=random(10,50)){
+						  let c = cityImg.get(ci,cj);
+						  if(c[0]>120+random(-10,10) && c[2]>120+random(-10,10)){
+							  c[0]*=(1+random(0.3));
+							  c[2]*=(1+random(0.3));
+						  }
+						  push();
+						  fill(
+							  c[0],
+							  c[1],
+							  c[2],
+							  dis_r2
+						  );
+
+							  blendMode(LIGHTEST);
+							  translate(ci,cj);
+							  ellipse(0,0,random(40));
+						  pop();
+					  }
+				  }
+			  }
+			  if(frameCount%9==0){
+				  for(var ri=0;ri<cityImg.width;ri+=random(10,20)){
+					  for(var rj=0;rj<cityImg.height;rj+=random(20,50)){
+						  let c = cityImg.get(ri,rj);
+						  push();
+						  fill(
+							  c[0]+random(10,20),
+							  c[1]+random(10,20),
+							  c[2]+random(20,30),
+							  dis_r3
+						  );
+							  translate(ri,rj);
+							  rect(0,0,random(5),random(50));
+						  pop();
+					  }
+				  }
+			  } 
+		  }, 2000);
+	  }
+	  //image(cityImg,0,0);
+	}
+	else{
+		if(!rainSound.isPlaying()){
+			rainSound.loop();
+			fade = 0;
+		}
+		console.log("val : " + val);
+		console.log("dis_r1 : " + dis_r1);
+		console.log("dis_r2 : " + dis_r2);
+		console.log("dis_r3 : " + dis_r3);
+		cityImg = firstImg;
+		
+		setTimeout(function() {
+		  push();
+		  let o=noise(frameCount*0.02);
+		  tint(255,o*2.5);
+		  image(cityImg,0,0);
+		  pop();
+		}, 3000);
+	  
+
+	  if(frameCount%30==0){
+		  for(var i=0;i<cityImg.width;i+=random(20,50)){
+			  for(var j=0;j<cityImg.height;j+=random(20,50)){
+				  dis_r1 = random(50,150);
+				  let c = cityImg.get(i,j);
+				  push();
+				  fill(
+					  c[0]-random(10),
+					  c[1]-random(10),
+					  c[2]-random(5),
+					  dis_r1
+				  );
+
+					  translate(i,j);
+					  rect(0,0,random(50),random(50));
+				  pop();
+			  }
+		  }
+	  }
+	  if(frameCount%10==0){
+		  for(var ci=0;ci<cityImg.width;ci+=random(10,50)){
+			  for(var cj=0;cj<cityImg.height;cj+=random(10,50)){
+				  let c = cityImg.get(ci,cj);
+				  if(c[0]>120+random(-10,10) && c[2]>120+random(-10,10)){
+					  c[0]*=(1+random(0.3));
+					  c[2]*=(1+random(0.3));
+				  }
+				  dis_r2 = random(70,100);
+				  push();
+				  fill(
+					  c[0],
+					  c[1],
+					  c[2],
+					  dis_r2
+				  );
+
+					  blendMode(LIGHTEST);
+					  translate(ci,cj);
+					  ellipse(0,0,random(40));
+				  pop();
+			  }
+		  }
+	  }
+	  if(frameCount%9==0){
+		  for(var ri=0;ri<cityImg.width;ri+=random(10,20)){
+			  for(var rj=0;rj<cityImg.height;rj+=random(20,50)){
+				  let c = cityImg.get(ri,rj);
+				  dis_r3 = random(30,60);
+				  push();
+				  fill(
+					  c[0]+random(10,20),
+					  c[1]+random(10,20),
+					  c[2]+random(20,30),
+					  dis_r3
+				  );
+					  translate(ri,rj);
+					  rect(0,0,random(5),random(50));
+				  pop();
+			  }
+		  }
+	  }   
+
+	  if(frameCount%20==0 && random(freqdrop)<1){
+
+			  let dropdr = new Drop({            
+				  r:random(5,7),
+				  p:createVector(random(width),random(height))
+			  });
+
+			  drops.push(dropdr);
+	  }
+
+	  for(let [key,dropd] of drops.entries()){
+		  dropd.update();
+		  dropd.draw();
+		  //print(drops.length);
+		  if(dropd.state=="dead"){
+			  drops.splice(key,1);
+			  // print(drops.length);
+		  }
+	  }
+	}
+}
+
+// 지면을 나타내는 함수
+function ground() {
+  // 지면의 색상 및 투명도 설정
+  fill(170, 150, 146, 240);
+  
+  // 지면 사각형 그리기
+  rect(0, 530, 600, 530);
+}
+
+// 비의 물방울을 나타내는 객체 생성자 함수
+function Rain(x, y) {
+  // 초기 위치 설정
+  this.x = x;
+  this.y = y;
+  
+  // 비의 물방울 속성 초기화
+  this.length = 15;
+  this.r = 0;
+  this.opacity = 200;
+
+  // 비의 물방울을 그리는 메서드
+  this.dropRain = function() {
+    // 외곽선 없음
+    noStroke();
+    
+    // 물방울의 색상 설정
+    fill(255);
+    
+    // 물방울 그리기 (타원 형태)
+    ellipse(this.x, this.y, 3, this.length);
+    
+    // 물방울이 아래로 이동
+    this.y = this.y + 6;
+    
+    // 물방울이 일정 높이에 도달하면 길이 감소
+    if (this.y > 540) {
+      this.length = this.length - 5;
+    }
+    
+    // 물방울의 길이가 0보다 작으면 0으로 설정
+    if (this.length < 0) {
+      this.length = 0;
+    }
+  }
+}
+
+
+// 비의 물방울을 나타내는 객체의 splash 메서드
+this.splash = function() {
+  // 선 굵기 설정
+  strokeWeight(2);
+  
+  // 비의 물방울 색 및 투명도 설정
+  // stroke(245, 200/frameCount); // 주석 처리된 부분
+  stroke(245, this.opacity);
+
+  // 외곽선만 그리기
+  noFill();
+
+  // 물방울이 특정 높이에 도달하면 실행
+  if (this.y > 540) {
+    // 타원 모양의 물방울 그리기
+    ellipse(this.x, 550, this.r * 2, this.r / 2);
+
+    // 물방울 크기와 투명도 조절
+    this.r++;
+    this.opacity = this.opacity - 10;
+
+    // 비가 떨어지는 상태를 계속 유지하기 위한 설정
+    if (this.opacity < 0) {
+      // 비 위치 초기화 및 속성 재설정
+      this.y = random(0, -100);
+      this.length = 15;
+      this.r = 0;
+      this.opacity = 200;
+    }
+  }
+}
+
+   
+
+      function flower() {
+        //drawFlower();
+
+        //flower1
+        for (var r11 = 0; r11 < 10; r11++) {
+          stroke(85,107,47,20);
+          strokeWeight(3);
+          if (frameCount <= 600) {
+            line(400, 550, 400, 400 + frameCount / 10);
+          }
+          if (frameCount > 600) {
+            line(400, 550, 400, 460);
+          }
+          noStroke();
+        }
+
+        push();
+        fill(230, 190, 230, 240);
+        translate(400, 400);
+        noStroke();
+        //rotate(radians(frameCount / 2));
+        for (var r1 = 0; r1 < 10; r1++) {
+          if (frameCount <= 600) {
+            ellipse(0, 10 + frameCount / 20, 10 + frameCount / 40, 20 + frameCount / 20);
+          }
+          if (frameCount > 600) {
+            ellipse(0, 40, 25, 50);
+          }
+          rotate(PI / 5);
+        }
+        pop();
+
+
+        for (var r21 = 0; r21 < 10; r21++) {
+          stroke(85,107,47,20);
+          strokeWeight(3);
+          if (frameCount <= 600) {
+            line(300, 580, 300, 430 + frameCount / 10);
+          }
+          if (frameCount > 600) {
+            line(300, 580, 300, 490);
+          }
+          noStroke();
+        }
+
+        push();
+        fill(235, 194, 204, 240);
+        translate(300, 430);
+        noStroke();
+
+        for (var r2 = 0; r2 < 10; r2++) {
+          if (frameCount <= 600) {
+            ellipse(0, 10 + frameCount / 20, 10 + frameCount / 40, 20 + frameCount / 20);
+          }
+          if (frameCount > 600) {
+            ellipse(0, 40, 25, 50)
+          }
+          rotate(PI / 5);
+        }
+        pop();
+
+
+        //flower3
+         for (var r31 = 0; r31 < 10; r31++) {
+          stroke(85,107,47,20);
+          strokeWeight(3);
+          if (frameCount <= 600) {
+            line(180, 535, 180, 390 + frameCount / 10);
+          }
+          if (frameCount > 600) {
+            line(180, 535, 180, 435);
+          }
+          noStroke();
+        }
+
+        push();
+        fill(245, 204, 174, 240);
+        translate(180, 385);
+        noStroke();
+        for (var r3 = 0; r3 < 10; r3++) {
+          if (frameCount <= 600) {
+            ellipse(0, 10 + frameCount / 20, 10 + frameCount / 40, 20 + frameCount / 20);
+          }
+          if (frameCount > 600) {
+            ellipse(0, 40, 25, 50)
+          }
+          rotate(PI / 5);
+        }
+        pop();
+
+
+        //flower4
+           for (var r41 = 0; r41 < 10; r41++) {
+          stroke(85,107,47,20);
+          strokeWeight(3);
+          if (frameCount <= 600) {
+            line(510, 575, 510, 425 + frameCount / 10);
+          }
+          if (frameCount > 600) {
+            line(510, 575, 510, 485);
+          }
+          noStroke();
+        }
+
+        push();
+        fill(245, 174, 154, 240);
+        translate(510, 425);
+        noStroke();
+        for (var r4 = 0; r4 < 10; r4++) {
+          if (frameCount <= 600) {
+            ellipse(0, 10 + frameCount / 20, 10 + frameCount / 40, 20 + frameCount / 20);
+          }
+          if (frameCount > 600) {
+            ellipse(0, 40, 25, 50)
+          }
+          rotate(PI / 5);
+        }
+        pop();
+
+        //flower5
+           for (var r51 = 0; r51 < 10; r51++) {
+          stroke(85,107,47,20);
+          strokeWeight(3);
+          if (frameCount <= 600) {
+            line(70, 600, 70, 450 + frameCount / 10);
+          }
+          if (frameCount > 600) {
+            line(70, 600, 70, 510);
+          }
+          noStroke();
+        }
+
+        push();
+        fill(245, 174, 184, 240);
+        translate(70, 450);
+        noStroke();
+        for (var r5 = 0; r5 < 10; r5++) {
+          if (frameCount <= 600) {
+            ellipse(0, 10 + frameCount / 20, 10 + frameCount / 40, 20 + frameCount / 20);
+          }
+          if (frameCount > 600) {
+            ellipse(0, 40, 25, 50)
+          }
+          rotate(PI / 5);
+        }
+        pop();
+      }
+
+
+      function mousePressed() {
+        //background(160,209,230);
+        rainingNow = false;
+        //Change to blue sky
+        bgcolor = (160, 209, 230);
+      }
+
+// 마우스 클릭 시 배경 이미지로 재설정
+function mousePressed() {
+  image(cityImg, 0, 0);
+	//val = 2000;
+	//dis_r1 = random(50,150);
+	//dis_r2 = random(70,100);
+	//dis_r3 = random(30,60);
+}
+
+function drawSun() {
+  // 태양을 그리는 함수
+
+  // 태양의 색상과 외곽선 설정
+  fill(245, 187, 87);
+  stroke(245, 187, 87);
+
+  // 변환을 위해 현재 좌표 시스템을 저장
+  push();
+
+  // 좌표 시스템을 이동 및 회전
+  translate(100, 80);
+  rotate(radians(frameCount / 2));
+
+  // 태양의 모양 그리기 (타원)
+  ellipse(0, 0, 60, 60);
+
+  // 태양 광선 그리기
+  line(0, -60, 0, -40);
+  line(0, 40, 0, 60);
+  line(-45, -45, -30, -30);
+  line(45, -45, 30, -30);
+  line(-60, 0, -40, 0);
+  line(40, 0, 60, 0);
+  line(-45, 45, -30, 30);
+  line(45, 45, 30, 30);
+
+  // 변환 이전의 좌표 시스템으로 되돌리기
+  pop();
+
+  // 외곽선 제거
+  noFill();
+} 
+      
+    </script>
+  </body>
+</html>
+      
+      
